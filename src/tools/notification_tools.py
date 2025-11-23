@@ -115,7 +115,7 @@ def schedule_event_action(
         )
         
         
-        return f"✅ Событие: \n {text} \n успешно запланировано! Напоминаний создано: {jobs_count}."
+        return f"✅ Событие: \n {text} \n Успешно запланировано! Напоминаний создано: {jobs_count}."
 
     except Exception as e:
         logger.error(f"Critical Schedule Exception: {e}", exc_info=True)
