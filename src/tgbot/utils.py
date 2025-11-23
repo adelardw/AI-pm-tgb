@@ -1,7 +1,7 @@
 import redis
 from datetime import datetime,timedelta
 from beautylogger import logger
-from config import TIMEZONE,ADMIN_ID
+from config import TIMEZONE,ADMIN_ID, WHITE_LIST
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_MAX_MESSAGE_CAPTION = 1024
@@ -68,15 +68,17 @@ def check_subscription(user_id: int, cache: redis.StrictRedis) -> tuple[bool, da
     Проверяет активную подписку пользователя.
     Возвращает кортеж: (статус_подписки, дата_окончания | None).
     """
-    if str(user_id) != ADMIN_ID:
+    if str(user_id) not in WHITE_LIST:
         sub_end_date_str = cache.get(f"sub_end_date_{user_id}")
+        logger.info(f"[CHECK] {sub_end_date_str}")
+        sub_end_date_str = sub_end_date_str.decode()
         if sub_end_date_str:
             sub_end_date = datetime.fromisoformat(sub_end_date_str)
             if datetime.now(TIMEZONE) < sub_end_date:
-                return True, sub_end_date # Подписка активна
+                return True, sub_end_date 
             else:
-                return False, sub_end_date # Подписка закончилась
-        return False, None # Подписка неактивна
+                return False, sub_end_date
+        return False, None 
     else:
         sub_end_date_admin = datetime(9999,12,31,23,59)
         return True, sub_end_date_admin

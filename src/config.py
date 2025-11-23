@@ -6,6 +6,7 @@ load_dotenv(find_dotenv('.env'))
 
 API_TOKEN = os.getenv('TG_API_KEY', None)
 ADMIN_ID = os.getenv('ADMIN_ID', None)
+WHITE_LIST = os.getenv('WHITE_LIST', '').split(',')
 TIMEZONE = pytz.timezone(os.getenv('TIMEZONE'))
 OPEN_ROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 

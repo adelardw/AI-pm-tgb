@@ -22,7 +22,7 @@ from tgbot.utils import (split_long_message, find_cache,
 
 import os
 from src.users_cache import cache_db
-from config import API_TOKEN, ADMIN_ID
+from config import API_TOKEN, ADMIN_ID, WHITE_LIST
 from src.tools.notification_tools import scheduler
 
 
@@ -63,13 +63,11 @@ async def init(message: types.Message, state: FSMContext):
         await cmd_menu(message)
     elif not is_subscribed and not end_time:
         builder.row(KeyboardButton(text="Прочитать пользовательское соглашение"))
-        await message.answer('Привет! Я голосовой ассистент VEGA, который помогает c такими проблемами'
-                            "1. Вы можете поставить события в в свой Google Calendar через голос"
-                            "2. Вы можете узнать последние новости из своей почты.Нужно соглашения на обрабокту персональных данных"
-                            "3. Также вы можете получить транскрибацию аудио"
-                            "4. Записать что - то в документ в формате .txt / .md. Учтите, мы не храним файлы, после отправки они сразу удаляются"
-                            'Вы можете со мной общаться.'
-                            'Приложение - платное по подписке 350 р / месяц !!! У Вас будет пробный период в размере 1 дня',
+        await message.answer('Привет! Я голосовой ассистент VEGA, который помогает c такими проблемами'\
+                            "1. Вы можете поставить какие - то уведомления о каких - то событиях"\
+                            "2. Посмотреть прогноз погоды в Вашем городе"\
+                            "3. Сделать саммари новостей из интенета по задаваемой Вами тематике"\
+                            'Вы можете со мной общаться c использованием текста или голосовых сообщений.',
                             reply_markup=builder.as_markup(resize_keyboard=True))
 
     elif is_subscribed and not end_time:
@@ -92,7 +90,7 @@ async def cmd_menu(message: types.Message):
         await message.answer("Срок вашей подписки истек. Чтобы продолжить, пожалуйста, оформите новую.",
                              reply_markup=builder.as_markup(resize_keyboard=True))
     else:
-        if str(user_id) == str(ADMIN_ID):
+        if str(user_id) == str(ADMIN_ID) or str(user_id) in WHITE_LIST:
             builder.row(KeyboardButton(text="[AGENTIC MODE]"))
 
         builder.row(KeyboardButton(text="Прочитать пользовательское соглашение"))
@@ -116,11 +114,9 @@ async def user_confidence_state(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     builder = ReplyKeyboardBuilder()
     is_subscribed, _ = check_subscription(user_id, cache_db)
-    if not is_subscribed:
-        builder.row(KeyboardButton(text="Принять"))
-        builder.row(KeyboardButton(text="Отказаться"))
-    else:
-        builder.row(KeyboardButton(text="Отказаться"))
+
+    builder.row(KeyboardButton(text="Принять"))
+    builder.row(KeyboardButton(text="Отказаться"))
 
     await message.answer(
             "Выберите действие:",
