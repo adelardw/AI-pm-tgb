@@ -1,5 +1,5 @@
 # Структура проекта:
-
+```md
 ├── src
 │   ├── agents
 │   │   ├── __init__.py
@@ -54,6 +54,7 @@
 ├── pyproject.toml
 ├── requirements.txt
 └── uv.lock
+```
 
 # Запуск:
 
