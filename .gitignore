@@ -1,0 +1,13 @@
+*.json
+.env
+agent_files
+confidence.md
+user_accept.md
+*__pycache__
+back
+hf_models
+tests
+tests.ipynb
+src/tgbot/billing.py
+AIPM*
+old_result_calendar/

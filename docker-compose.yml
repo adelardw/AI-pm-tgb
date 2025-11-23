@@ -1,0 +1,12 @@
+
+services:
+  redis:
+    container_name: redis_calendar
+    image: redis:latest
+    ports:
+      - "1315:6379"
+    volumes:
+      - redis_cache:/root/redis_cache
+
+volumes:
+  redis_cache:

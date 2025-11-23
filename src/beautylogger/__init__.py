@@ -1,0 +1,1 @@
+from beautylogger.bl import logger
