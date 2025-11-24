@@ -708,7 +708,7 @@ def search(search_query: str):
     По поисковому запросу search_query находит топ результатов поисковой выдачи
     '''
     search_engine = DDGS()
-    results = search_engine.text(search_query, max_results=3)
+    results = search_engine.text(search_query, region="ru-ru", max_results=3)
     texts = []
     for results in results:
         href = results['href']
