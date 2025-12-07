@@ -110,8 +110,6 @@ class GlobalLocalThreadUserMemory():
         self.redis.rpush(thread_key, msg_thread)
         self.redis.expire(thread_key, self.ttl)
 
-        # первая нужна, чтоб получать саммари для текущего пользователя по имени потока
-
         msg_global = json.dumps({
             "summary": summary, 
             "theme": theme, 
