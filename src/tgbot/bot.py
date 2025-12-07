@@ -29,7 +29,7 @@ import os
 from src.users_cache import cache_db, thread_memory
 from config import API_TOKEN, ADMIN_ID, WHITE_LIST, TIMEZONE
 from src.tools.notification_tools import scheduler
-
+from aiogram.exceptions import TelegramBadRequest
 
 storage=MemoryStorage()
 bot = Bot(token=API_TOKEN)
@@ -40,6 +40,28 @@ dp.include_router(router)
 
 router.message.middleware(AlbumMiddleware(latency=0.6))
 
+
+async def send_chunked_message(message: types.Message, text: str):
+    """
+    Безопасно отправляет длинные сообщения.
+    1. Пытается отправить как Markdown (жирный текст работает).
+    2. Если ошибка форматирования или разбиения — отправляет как чистый текст.
+    """
+    # Сначала пробуем разбить и отформатировать
+    chunks = split_long_message(text)
+    
+    try:
+        for chunk in chunks:
+            formatted_chunk = chunk.replace('**', '*')
+            await message.answer(formatted_chunk, parse_mode="Markdown")
+            
+    except TelegramBadRequest as e:
+
+        logger.warning(f"Markdown failed, sending plain text. Error: {e}")
+        
+        chunks = split_long_message(text) 
+        for chunk in chunks:
+            await message.answer(chunk, parse_mode=None)
 
 async def process_message_content(bot: Bot, message: types.Message, album: list[types.Message] = None):
     """
@@ -101,10 +123,11 @@ async def run_default_assistant(message: types.Message, text: str, user_id: str,
         assistant_response = answer_state.get('generation', 'Извините, я задумался.')
         thread_memory.add_message_to_history(thread_info['thread_id'], role='assistant', content=assistant_response)
         
-        chunks = split_long_message(assistant_response)
-        for chunk in chunks:
-            chunk = chunk.replace('**',"*")
-            await message.answer(chunk, parse_mode="Markdown")
+        await send_chunked_message(message, assistant_response)
+        #chunks = split_long_message(assistant_response)
+        #for chunk in chunks:
+        #    chunk = chunk.replace('**',"*")
+        #    await message.answer(chunk, parse_mode="Markdown")
             
     except Exception as e:
         logger.error(f'[BUG in Default Assistant] {e}', exc_info=True)

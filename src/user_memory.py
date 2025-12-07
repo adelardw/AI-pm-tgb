@@ -162,8 +162,9 @@ class GlobalLocalThreadUserMemory():
         
         avg_pause = meta["total_pause_sum"] / meta["msg_count"] if meta["msg_count"] > 0 else 0
         is_avg_high = avg_pause > self.criterion_val
-
-        if is_avg_high:
+        is_new_day = message_datetime.date() > last_time.date()
+        
+        if is_avg_high or is_new_day:
             logger.info(f'[MAKE NEW THREAD]')
             new_thread_id = str(uuid.uuid4())
             old_thread_id = meta["current_thread_id"]
