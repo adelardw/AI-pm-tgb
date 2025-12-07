@@ -21,7 +21,8 @@ from tgbot.bot_shemas import BotStates
 from tgbot.utils import (split_long_message,
                          grant_trial_subscription,
                          grant_30days_subscription,
-                         check_subscription)
+                         check_subscription,
+                         encode_image_to_base64)
 
 import os
 from src.users_cache import cache_db, thread_memory
@@ -37,8 +38,39 @@ vega = VEGA()
 dp.include_router(router)
 
 
+async def process_message_content(bot: Bot, message: types.Message, album: list[types.Message] = None):
+    """
+    Собирает ВСЕ фото в список.
+    Ищет ОДНУ подпись (так как в ТГ одна подпись на альбом).
+    """
+    text_content = ""
+    images_list = []
 
-async def run_default_assistant(message: types.Message, text: str, user_id: str):
+    if album:
+        for msg in album:
+            if not text_content and msg.caption:
+                text_content = msg.caption
+            
+            if msg.photo:
+                photo_info = msg.photo[-1]
+                file_io = await bot.download(photo_info.file_id)
+                base64_img = encode_image_to_base64(file_io)
+                images_list.append(f"data:image/jpeg;base64,{base64_img}")
+
+    elif message.photo:
+        text_content = message.caption or ""
+        
+        photo_info = message.photo[-1]
+        file_io = await bot.download(photo_info.file_id)
+        base64_img = encode_image_to_base64(file_io)
+        images_list.append(f"data:image/jpeg;base64,{base64_img}")
+
+    elif message.text:
+        text_content = message.text
+
+    return text_content.strip(), images_list
+
+async def run_default_assistant(message: types.Message, text: str, user_id: str, images: list[str]):
     """
     Функция запускает граф tgc_default и отправляет ответ пользователю.
     """
@@ -56,7 +88,7 @@ async def run_default_assistant(message: types.Message, text: str, user_id: str)
             "thread_id": thread_info['thread_id'],
             "previous_thread_id": thread_info['previous_thread_id'],
             "local_context": local_context,
-            "image_url": None,
+            "image_url": images or None,
             'user_message': text
         }
 
@@ -263,39 +295,47 @@ async def chat(message: types.Message, state: FSMContext, bot: Bot):
     await cmd_menu(message)
 
 
-@router.message(F.text | F.voice)
-async def handle_any_message(message: types.Message, bot: Bot):
+@router.message(F.text | F.voice | F.photo)
+async def handle_any_message(message: types.Message, bot: Bot, state: FSMContext, album: list[types.Message] = None):
     """
-    Этот хендлер ловит все текстовые и голосовые сообщения,
-    которые не являются командами или кнопками меню.
+    Обрабатывает всё: голос, текст, одно фото, альбом фото.
     """
+    if await state.get_state() is not None:
+        return
+
     user_id = str(message.from_user.id)
-    is_subscribed, end_date = check_subscription(user_id, cache_db)
+    is_subscribed, _ = check_subscription(user_id, cache_db)
 
     if not is_subscribed:
         builder = ReplyKeyboardBuilder()
         builder.row(KeyboardButton(text="Оплатить"))
-        await message.answer("Срок вашей подписки истек.", reply_markup=builder.as_markup(resize_keyboard=True))
+        await message.answer("Подписка неактивна.", reply_markup=builder.as_markup(resize_keyboard=True))
         return
     
+
+    text_content = ""
+    images_list = []
+
     if message.voice:
         wait_msg = await message.answer("Слушаю...")
         try:
-            audio = await voice_message_to_numpy(bot, message.voice.file_id, 16000)
-            text = vega.transcribe(audio)
+            async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
+                audio = await voice_message_to_numpy(bot, message.voice.file_id, 16000)
+                text_content = vega.transcribe(audio)
             await bot.delete_message(chat_id=message.chat.id, message_id=wait_msg.message_id)
-        except Exception as e:
+        except Exception:
             await message.answer("Не удалось распознать голос.")
             return
     else:
-        text = message.text
+    
+        text_content, images_list = await process_message_content(bot, message, album)
 
 
-    if not text:
+    if not text_content and not images_list:
         return
 
+    await run_default_assistant(message, text_content, user_id, images=images_list)
 
-    await run_default_assistant(message, text, user_id)
     
 async def main():
     logger.info('StartApp')

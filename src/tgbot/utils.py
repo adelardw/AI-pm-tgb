@@ -2,6 +2,8 @@ import redis
 from datetime import datetime,timedelta
 from beautylogger import logger
 from config import TIMEZONE,ADMIN_ID, WHITE_LIST
+import base64
+
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_MAX_MESSAGE_CAPTION = 1024
@@ -81,6 +83,11 @@ def check_subscription(user_id: int, cache: redis.StrictRedis) -> tuple[bool, da
     else:
         sub_end_date_admin = datetime(9999,12,31,23,59)
         return True, sub_end_date_admin
+
+
+def encode_image_to_base64(image_buffer):
+    
+    return base64.b64encode(image_buffer.read()).decode('utf-8')
 
 def grant_trial_subscription(user_id: int, cache: redis.StrictRedis):
     """

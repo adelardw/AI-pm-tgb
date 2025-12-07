@@ -1,16 +1,10 @@
 import numpy as np
 import json
 from datetime import datetime
-from collections import defaultdict
 import redis
 import uuid
-#from users_cache import cache_db, redis
-
-
 import redis
-import json
-import uuid
-from datetime import datetime
+from .beautylogger import logger
 from typing import TypedDict, List, Optional, Union
 
 class GlobalLocalThreadUserMemory():
@@ -136,6 +130,7 @@ class GlobalLocalThreadUserMemory():
         raw_data = self.redis.get(key)
         
         if not raw_data:
+            logger.info(f'[NEW THREAD FOR NEW USER]')
             new_thread_id = str(uuid.uuid4())
             meta = {
                 "current_thread_id": new_thread_id,
@@ -168,7 +163,7 @@ class GlobalLocalThreadUserMemory():
         is_avg_high = avg_pause > self.criterion_val
 
         if is_avg_high:
-
+            logger.info(f'[MAKE NEW THREAD]')
             new_thread_id = str(uuid.uuid4())
             old_thread_id = meta["current_thread_id"]
             
@@ -184,7 +179,7 @@ class GlobalLocalThreadUserMemory():
                 "make_history_summary": True
             }
         else:
-            # --- Тот же поток ---
+            logger.info(f'[IN OLD THREAD]')
             self.redis.set(key, json.dumps(meta))
             return {
                 "thread_id": meta["current_thread_id"],

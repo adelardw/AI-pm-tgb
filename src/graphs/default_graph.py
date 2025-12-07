@@ -71,7 +71,7 @@ async def wonder_node(state):
 async def recall_node(state):
     """Ищет похожие саммари в прошлом (Global Context)."""
     
-    logger.info('[RECALL]')
+    logger.info('[RECALL]')   
     recall_results = await recall_assistant.ainvoke({
         "local_context": f"Локальная память: {state.get('local_context', [])}",
         "user_message": f"Сообщение пользователя: {state['user_message']}"
@@ -99,17 +99,24 @@ async def recall_node(state):
                 found_texts = [f"- {full_summaries[i]}" for i in ind]
                 global_context_str = "\n".join(found_texts)
 
+    logger.info(f'[GLOBAL CTX] {global_context_str}')
+    logger.info(f"[LOCAL CTX] {state['local_context']}")
+
     state['global_context'] = global_context_str
     return state
 
 
 async def answer_node(state):
     logger.info('[ANSWER]')
-    response = await chat_assistant.ainvoke({
+    
+    input_dict = {
         'global_context': f"Глобальный контекст (прошлые темы): {state.get('global_context', 'Нет данных')}",
         'local_context': f"Локальная память (текущий разговор): {state.get('local_context', [])}",
         "user_message": f"Сообщение пользователя: {state['user_message']}" 
-    })
+    }
+    if state['image_url']:
+        input_dict.update({"image_url": state['image_url']})
+    response = await chat_assistant.ainvoke(input_dict)
     
     state['generation'] = response
     return state

@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+import base64
 from collections import deque
 from PIL import Image, ImageDraw, ImageFont
 from langchain_core.messages import SystemMessage, HumanMessage
