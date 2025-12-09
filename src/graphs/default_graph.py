@@ -122,10 +122,10 @@ async def recall_node(state):
                 found_texts = [f"- {full_summaries[i]}" for i in ind]
                 global_context_str = "\n".join(found_texts)
 
-    logger.info(f'[GLOBAL CTX] {global_context_str}')
-    logger.info(f"[LOCAL CTX] {state['local_context']}")
+        logger.info(f'[GLOBAL CTX] {global_context_str}')
+        logger.info(f"[LOCAL CTX] {state['local_context']}")
 
-    state['global_context'] = global_context_str
+        state['global_context'] = global_context_str
     return state
 
 
