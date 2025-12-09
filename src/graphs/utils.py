@@ -19,7 +19,7 @@ from selenium.webdriver.common.keys import Keys
 
 
 import base64
-from typing import Literal, Optional
+from typing import Literal, Optional, List, Union, Dict
 from graphs.structured_outputs import WebStructuredOutputs
 from beautylogger import logger
 from datetime import datetime
@@ -753,29 +753,39 @@ def image_text_prompt(sys_prompt: Optional[str], input_dict: dict):
             HumanMessage(content=contents)] if sys_prompt else [HumanMessage(content=contents)]
 
 
-def format_history_for_llm(history_list: list[str],
-                           wonder_list: list[str]) -> str:
+def format_history_for_llm(history_list: List[Union[str, Dict]],
+                           wonder_list: List[Union[str, Dict]]) -> str:
     """
-    Превращает список JSON-строк в текст вида:
+    Превращает список (строк или словарей) в текст вида:
     User: Привет
     Assistant: Привет!
     """
     dialogue_text = ""
+
     for item in history_list:
         try:
-            data = json.loads(item) 
-            role = data.get("role", "unknown").capitalize() # "user" -> "User"
+            if isinstance(item, dict):
+                data = item
+            else:
+                data = json.loads(item)
+            
+            role = data.get("role", "unknown").capitalize() 
             content = data.get("content", "")
             dialogue_text += f"{role}: {content}\n"
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             continue
     
-    for wonderwavflya in wonder_list:
+    for item in wonder_list:
         try:
-            data = json.loads(wonderwavflya)
-            content = data.get("content")
+
+            if isinstance(item, dict):
+                data = item
+            else:
+                data = json.loads(item)
+
+            content = data.get("content", "")
             dialogue_text += f">>> INSIGHT (Инсайт): {content}\n"
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             continue
         
     return dialogue_text
