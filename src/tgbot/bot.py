@@ -53,7 +53,7 @@ async def send_chunked_message(message: types.Message, text: str):
     try:
         for chunk in chunks:
             formatted_chunk = chunk.replace('**', '*')
-            await message.answer(formatted_chunk, parse_mode="Markdown")
+            await message.answer(formatted_chunk, parse_mode="MarkdownV2")
             
     except TelegramBadRequest as e:
 
