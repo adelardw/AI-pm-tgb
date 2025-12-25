@@ -48,12 +48,12 @@ async def send_chunked_message(message: types.Message, text: str):
     2. Если ошибка форматирования или разбиения — отправляет как чистый текст.
     """
     # Сначала пробуем разбить и отформатировать
+    text = text.replace("***", "*").replace("**", "*").replace("#","")
     chunks = split_long_message(text)
     
     try:
         for chunk in chunks:
-            formatted_chunk = chunk.replace('**', '*')
-            await message.answer(formatted_chunk, parse_mode="MarkdownV2")
+            await message.answer(chunk, parse_mode="Markdown")
             
     except TelegramBadRequest as e:
 
@@ -103,7 +103,8 @@ async def run_default_assistant(message: types.Message, text: str, user_id: str,
         thread_info = thread_memory.check_and_init_thread(user_id=user_id, message_datetime=message.date)
         local_context = thread_memory.get_local_history(thread_info['thread_id'])
 
-        thread_memory.add_message_to_history(thread_info['thread_id'], role='user', content=text)
+        thread_memory.add_message_to_history(thread_info['thread_id'], role='user', content=text,
+                                             metadata={'images': images } if images else None)
 
         config = {"configurable": {"thread_id": thread_info['thread_id']}}
         
@@ -126,7 +127,7 @@ async def run_default_assistant(message: types.Message, text: str, user_id: str,
         await send_chunked_message(message, assistant_response)
             
     except Exception as e:
-        logger.error(f'[BUG in Default Assistant] {e}', exc_info=True)
+        logger.info(f'[BUG in Default Assistant] {e}')
         await message.answer("Произошла ошибка при обработке сообщения.")
 
 async def voice_message_to_numpy(bot: Bot, file_id: str, target_sr: int) -> np.ndarray:
@@ -297,7 +298,7 @@ async def chat(message: types.Message, state: FSMContext, bot: Bot):
     if text.lower().strip() in exit_commands:
 
         await state.clear()
-        await message.answer("Режим агента выключен. Возвращаюсь к памяти.", reply_markup=ReplyKeyboardRemove())
+        await message.answer("Режим агента выключен.", reply_markup=ReplyKeyboardRemove())
         await cmd_menu(message) 
         return
 

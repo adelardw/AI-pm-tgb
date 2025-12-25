@@ -5,7 +5,7 @@ import redis
 import uuid
 import redis
 from .beautylogger import logger
-from typing import TypedDict, List, Optional, Union
+from typing import TypedDict, List, Optional, Union, Any
 
 class GlobalLocalThreadUserMemory():
     def __init__(self, redis_client: Union[redis.StrictRedis, redis.Redis], 
@@ -89,19 +89,23 @@ class GlobalLocalThreadUserMemory():
                     continue
         return result
 
-    def _add_msg_global_history(self, thread_id: str, role: str, content: str):
-        msg = json.dumps({"role": role, "content": content},ensure_ascii=False)
+    def _add_msg_global_history(self, thread_id: str, role: str, content: str, metadata: Optional[dict[str, Any]] = None):
+        msg = json.dumps({"role": role, "content": content, 'metadata': metadata},ensure_ascii=False) if metadata \
+            else json.dumps({"role": role, "content": content},ensure_ascii=False)
+
         self.redis.rpush(self._get_thread_history_key(thread_id), msg)
         self.redis.expire(self._get_thread_history_key(thread_id), self.ttl)
         
-    def _add_msg_local_history(self, thread_id: str, role: str, content: str):
-        msg = json.dumps({"role": role, "content": content},ensure_ascii=False)
+    def _add_msg_local_history(self, thread_id: str, role: str, content: str, metadata: Optional[dict[str, Any]] = None):
+        msg = json.dumps({"role": role, "content": content, 'metadata': metadata},ensure_ascii=False) if metadata \
+            else json.dumps({"role": role, "content": content},ensure_ascii=False)
+
         self.redis.rpush(self._get_thread_local_history_key(thread_id), msg)
         self.redis.expire(self._get_thread_local_history_key(thread_id), self.ttl)
         
-    def add_message_to_history(self, thread_id: str, role: str, content: str):
-        self._add_msg_global_history(thread_id, role, content)
-        self._add_msg_local_history(thread_id, role, content)
+    def add_message_to_history(self, thread_id: str, role: str, content: str, metadata: Optional[dict[str, Any]] = None):
+        self._add_msg_global_history(thread_id, role, content, metadata)
+        self._add_msg_local_history(thread_id, role, content, metadata)
         
         
     def clear_thread_local_history(self, thread_id: str):
@@ -112,18 +116,11 @@ class GlobalLocalThreadUserMemory():
         self.redis.delete(self._get_thread_local_history_key(thread_id))
         logger.info(f'[HISTORY CLEARED] History for thread {thread_id} has been deleted.')
         
-    
-    def clear_thread_global_history(self, thread_id: str):
-        """
-        Полностью удаляет историю сообщений конкретного треда из Redis.
-        Используется после генерации саммари для очистки контекста.
-        """
-        self.redis.delete(self._get_thread_history_key(thread_id))
-        logger.info(f'[HISTORY CLEARED] History for thread {thread_id} has been deleted.')
 
-    def add_wonder_to_history(self, thread_id: str, user_message: str, reason: str):
+    def add_wonder_to_history(self, thread_id: str, user_message: str, reason: str, metadata: dict[str, Any]):
         msg = json.dumps({"role": 'wonder_moment', "content": f'Сообщение пользователя: {user_message}'\
-                                                              f'Почему момент удивительный: {reason}'},
+                                                              f'Почему момент удивительный: {reason}' , 
+                                                              "metadata": metadata},
                          ensure_ascii=False) 
         
         self.redis.rpush(self._get_thread_wonder_key(thread_id), msg)

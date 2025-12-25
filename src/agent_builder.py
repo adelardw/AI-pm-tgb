@@ -1,6 +1,6 @@
 import asyncio
 from langchain_core.prompts.chat import BaseChatPromptTemplate
-from langchain.agents import AgentExecutor, create_react_agent, create_structured_chat_agent
+from langchain.agents import AgentExecutor, create_react_agent, create_structured_chat_agent, create_tool_calling_agent
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field, create_model
@@ -49,9 +49,9 @@ class MakeRoutingMultiAgents():
 
     def update(self, system_prompt: tp.Optional[BaseChatPromptTemplate],
                agent_name: str,
-               agent_type: tp.Literal['react','create_structured_chat_agent', 'with_strucutured_outputs',
-                                      'free','multimodal',
-                                      'graph'],
+               agent_type: tp.Literal['react','create_tool_calling_agent',
+                                      'create_structured_chat_agent', 'with_strucutured_outputs',
+                                      'free','graph'],
 
                agent_description: str,
                llm_or_graph: tp.Optional[BaseChatModel] | tp.Optional[CompiledStateGraph] = None,
@@ -67,10 +67,11 @@ class MakeRoutingMultiAgents():
             description(str): описание агента
 
         '''
-        assert ((agent_type=='react' or agent_type=='create_structured_chat_agent') and tools and not output_schema) or \
-                (agent_type=="with_strucutured_outputs" and output_schema) or (agent_type=='free' and not tools and not output_schema) \
-                or (agent_type=='multimodal' and not tools and not output_schema and llm_or_graph) \
-                or (agent_type == 'graph' and not tools and not output_schema), \
+        assert ((agent_type=='react' or agent_type=='create_structured_chat_agent' or agent_type=='create_tool_calling_agent') \
+                and tools and not output_schema) or \
+                (agent_type=="with_strucutured_outputs" and output_schema) or \
+                (agent_type=='free' and not tools and not output_schema) or \
+                (agent_type == 'graph' and not tools and not output_schema), \
                 f'Sorry but this option is not supported for {agent_name} type'\
                 f'If you use `multimodal` please add new OpenRouterChat instance with supported multimodal model'
 
@@ -80,13 +81,19 @@ class MakeRoutingMultiAgents():
         self.schemas[agent_name] = output_schema
         self.agent_types[agent_name] = agent_type
 
-        if agent_type == 'react' or agent_type == 'create_structured_chat_agent':
+        if agent_type == 'react' or agent_type == 'create_structured_chat_agent' or agent_type=='create_tool_calling_agent':
             if agent_type == 'react':
                 agent = create_react_agent(self.llm, tools, system_prompt)
-            else:
+            elif agent_type=='create_structured_chat_agent':
                 agent = create_structured_chat_agent(self.llm, tools, system_prompt)
+            else:
+                agent = create_tool_calling_agent(self.llm, tools, system_prompt)
+                
+            agent_executor = AgentExecutor(agent=agent,tools=tools,
+                                           verbose=True,
+                                           handle_parsing_errors=True,
+                                           max_iterations=3)
 
-            agent_executor = AgentExecutor(agent=agent,tools=tools,verbose=True,handle_parsing_errors=True)
             self.agents[agent_name] = agent_executor
 
         if agent_type == "with_strucutured_outputs":

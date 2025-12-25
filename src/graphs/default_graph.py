@@ -7,7 +7,8 @@ from .structured_outputs import (MemoryFindStructuredOutputs, MemoryRecallStruct
                                  MemoryRememberStructuredOutputs, MemoryWonderStructuredOutputs,SummarizeStructuredOutputs)
 
 from .prompts import (memory_find_prompt, recall_prompt, wonder_prompt,
-                      rememeber_prompt, summarize_prompt,default_system_prompt)
+                      rememeber_prompt, summarize_prompt,default_system_prompt,
+                      finalizer_prompt, img_desc_prompt)
 
 from .graph_states import DefaultAssistant
 from .utils import format_history_for_llm
@@ -29,11 +30,22 @@ wonder_assistant = wonder_prompt | llm.with_structured_output(MemoryWonderStruct
 recall_assistant = recall_prompt | llm.with_structured_output(MemoryRecallStructuredOutputs)
 summarize_assistant = summarize_prompt | llm.with_structured_output(SummarizeStructuredOutputs)
 chat_assistant = default_system_prompt | llm | StrOutputParser()
+img_descriptor_assistant = img_desc_prompt | llm.bind(max_tokens=500) | StrOutputParser()
+
+final_assistant = finalizer_prompt | llm | StrOutputParser()
 
 
 
 async def router(state):
     logger.info('[ROUTER]')
+    if state.get('image_url'):
+        logger.info('[ADD IMG DESCRIPTIONS]')
+        thread_id = state['thread_id']
+        description = await img_descriptor_assistant.ainvoke({"user_message": f"Сообщение пользователя: {state['user_message']}",
+                                                           "image_url": state['image_url']})
+        
+        thread_memory.add_message_to_history(thread_id, 'assistant',f'Описание изображений для запроса пользователя: \n {state["user_message"]} \n' \
+                                                                    f'{description}')
     if state["make_history_summary"]:
         return "summarize"
     
@@ -44,21 +56,17 @@ async def router(state):
 
 async def local_summarize_node(state):
     logger.info('[LOCAL SUMMARIZE]')
-    user_id = state['user_id']
-    thread_id = state['thread_id']
+    thread_id = state['thread_id']        
     history = thread_memory.get_local_history(thread_id)
     wonder_history = thread_memory.get_wonder_thread_moments(thread_id)
     
     history = format_history_for_llm(history, wonder_history)
-    
     summary_results = await summarize_assistant.ainvoke({'history': history})
+    
     thread_memory.clear_thread_local_history(thread_id)
     thread_memory._add_msg_local_history(thread_id,'assistant', summary_results.summary)
     
-    
     state['local_context'] = thread_memory.get_local_history(thread_id)
-    
-    
     return state
 
 async def summarize_node(state):
@@ -68,6 +76,7 @@ async def summarize_node(state):
     previous_thread_id = state['previous_thread_id']
     history = thread_memory.get_thread_history(previous_thread_id)
     wonder_history = thread_memory.get_wonder_thread_moments(previous_thread_id)
+    
     
     history = format_history_for_llm(history, wonder_history)
     
@@ -82,20 +91,32 @@ async def summarize_node(state):
 
 async def wonder_node(state):
     logger.info('[WONDER]')
-    wonder_results = await wonder_assistant.ainvoke({"local_context": f"Локальная память: {state['local_context']}" ,
+    texts = []    
+    if loc_cts:=state.get('local_context'):
+        for message in loc_cts:
+            texts.append({"role" : message["role"], "content": message["content"]})
+ 
+    
+    wonder_results = await wonder_assistant.ainvoke({"local_context": f"Локальная память: {texts}" ,
                                                      "user_message": f"Сообщение пользователя: {state['user_message']}"}) 
     
     if wonder_results.need_remember:
         thread_memory.add_wonder_to_history(state['thread_id'], user_message=state['user_message'],
-                                            reason=wonder_results.reason)
+                                            reason=wonder_results.reason,
+                                            metadata=None)
     return state
 
 async def recall_node(state):
     """Ищет похожие саммари в прошлом (Global Context)."""
     
-    logger.info('[RECALL]')   
+    logger.info('[RECALL]')
+    texts = []
+    if loc_cts:=state.get('local_context'):
+        for message in loc_cts:
+            texts.append({"role" : message["role"], "content": message["content"]})
+            
     recall_results = await recall_assistant.ainvoke({
-        "local_context": f"Локальная память: {state.get('local_context', [])}",
+        "local_context": f"Локальная память: {texts}",
         "user_message": f"Сообщение пользователя: {state['user_message']}"
     }) 
     
@@ -123,7 +144,6 @@ async def recall_node(state):
                 global_context_str = "\n".join(found_texts)
 
         logger.info(f'[GLOBAL CTX] {global_context_str}')
-        logger.info(f"[LOCAL CTX] {state['local_context']}")
 
         state['global_context'] = global_context_str
     return state
@@ -131,17 +151,22 @@ async def recall_node(state):
 
 async def answer_node(state):
     logger.info('[ANSWER]')
-    
+    local_ctx_txt = []
+    global_ctx_txt = []
+    if loc_cts:=state.get('local_context'):
+        for message in loc_cts:
+            local_ctx_txt.append({"role" : message["role"], "content": message["content"]})
+            
     input_dict = {
         'global_context': f"Глобальный контекст (прошлые темы): {state.get('global_context', 'Нет данных')}",
-        'local_context': f"Локальная память (текущий разговор): {state.get('local_context', [])}",
+        'local_context': f"Локальная память (текущий разговор): {local_ctx_txt}",
         "user_message": f"Сообщение пользователя: {state['user_message']}" 
     }
     if state['image_url']:
         input_dict.update({"image_url": state['image_url']})
     response = await chat_assistant.ainvoke(input_dict)
-    
-    state['generation'] = response
+    final = await final_assistant.ainvoke({'post': response})
+    state['generation'] = final
     return state
         
 workflow = StateGraph(DefaultAssistant)
