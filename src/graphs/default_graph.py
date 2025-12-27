@@ -1,6 +1,8 @@
 from langchain_core.output_parsers import StrOutputParser
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
+from datetime import datetime, timedelta
+from time import perf_counter
 import numpy as np
 
 from .structured_outputs import (MemoryFindStructuredOutputs, MemoryRecallStructuredOutputs,
@@ -61,10 +63,14 @@ async def local_summarize_node(state):
     wonder_history = thread_memory.get_wonder_thread_moments(thread_id)
     
     history = format_history_for_llm(history, wonder_history)
+    
+    start = perf_counter()
     summary_results = await summarize_assistant.ainvoke({'history': history})
+    end = perf_counter() - start
     
     thread_memory.clear_thread_local_history(thread_id)
-    thread_memory._add_msg_local_history(thread_id,'assistant', summary_results.summary)
+    thread_memory._add_msg_local_history(thread_id,'assistant', summary_results.summary, 
+                                         metadata={'time': (state['time'] + timedelta(seconds=int(end))).isoformat() })
     
     state['local_context'] = thread_memory.get_local_history(thread_id)
     return state
@@ -79,12 +85,15 @@ async def summarize_node(state):
     
     
     history = format_history_for_llm(history, wonder_history)
-    
+    start = perf_counter()
     summary_results = await summarize_assistant.ainvoke({'history': history})
+    end = perf_counter() - start
+    
     thread_memory.add_user_thread_summary(summary=summary_results.summary,
                                           theme=summary_results.theme,
                                           user_id=user_id,
-                                          thread_id=previous_thread_id)
+                                          thread_id=previous_thread_id,
+                                          metadata = {"time": (state['time'] + timedelta(seconds=int(end))).isoformat()})
     
     return state
 
@@ -117,8 +126,7 @@ async def recall_node(state):
             
     recall_results = await recall_assistant.ainvoke({
         "local_context": f"Локальная память: {texts}",
-        "user_message": f"Сообщение пользователя: {state['user_message']}"
-    }) 
+        "user_message": f"Сообщение пользователя: {state['user_message']}"}) 
     
     global_context_str = ""
 
@@ -126,14 +134,15 @@ async def recall_node(state):
         summaries_data = thread_memory.get_all_user_summaries(state['user_id'])
         
         if summaries_data:
-            full_summaries = [s['summary'] for s in summaries_data if s.get('summary')]
+            full_summaries = [f"{s['created_at']} | {s['summary']} " for s in summaries_data if s.get('summary')]
             
             if full_summaries:
 
                 summary_embeddings = np.array(await embed.aembed_documents(full_summaries))
                 query = state['user_message']
-                full_local_ctx = [ f'- {message["role"]} : {message["content"]} ' for message in state['local_context']] \
+                full_local_ctx = [ f'-{[message['metadata']['time']]} | {message["role"]} : {message["content"]} ' for message in state['local_context']] \
                                   if state['local_context'] else []
+                                  
                 fully_local_context = query + '\n'.join(full_local_ctx)
                 query_embedding = np.array(await embed.aembed_query(fully_local_context))
                 scores = summary_embeddings @ query_embedding
@@ -160,7 +169,8 @@ async def answer_node(state):
     input_dict = {
         'global_context': f"Глобальный контекст (прошлые темы): {state.get('global_context', 'Нет данных')}",
         'local_context': f"Локальная память (текущий разговор): {local_ctx_txt}",
-        "user_message": f"Сообщение пользователя: {state['user_message']}" 
+        "user_message": f"Сообщение пользователя: {state['user_message']}",
+        "datetime": f"Время сообщения пользователя: {state['time']}" 
     }
     if state['image_url']:
         input_dict.update({"image_url": state['image_url']})

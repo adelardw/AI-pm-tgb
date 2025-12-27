@@ -117,10 +117,13 @@ class GlobalLocalThreadUserMemory():
         logger.info(f'[HISTORY CLEARED] History for thread {thread_id} has been deleted.')
         
 
-    def add_wonder_to_history(self, thread_id: str, user_message: str, reason: str, metadata: dict[str, Any]):
+    def add_wonder_to_history(self, thread_id: str, user_message: str, reason: str, metadata: Optional[dict[str, Any]] = None):
         msg = json.dumps({"role": 'wonder_moment', "content": f'Сообщение пользователя: {user_message}'\
                                                               f'Почему момент удивительный: {reason}' , 
-                                                              "metadata": metadata},
+                                                              "metadata": metadata} ,
+                         ensure_ascii=False) if metadata else \
+                json.dumps({"role": 'wonder_moment', "content": f'Сообщение пользователя: {user_message}'\
+                                                              f'Почему момент удивительный: {reason}'} ,
                          ensure_ascii=False) 
         
         self.redis.rpush(self._get_thread_wonder_key(thread_id), msg)
@@ -131,13 +134,17 @@ class GlobalLocalThreadUserMemory():
     #     self.redis.rpush(self._get_thread_remember_key(thread_id), msg)
     #     self.redis.expire(self._get_thread_remember_key(thread_id), self.ttl)
     
-    def add_user_thread_summary(self, summary: str, theme: str, user_id: str, thread_id: str):
+    def add_user_thread_summary(self, summary: str, theme: str, user_id: str, thread_id: str,
+                                metadata: Optional[dict[str, Any]] = None):
         """
         Сохраняет саммари в двух местах:
         1. В контексте конкретного треда (для истории треда).
         2. В глобальном списке пользователя (чтобы можно было достать все темы сразу).
         """
-        msg_thread = json.dumps({"summary": summary, 'theme': theme}, ensure_ascii=False)
+        msg_thread = json.dumps({"summary": summary, 'theme': theme, "metadata": metadata},
+                                ensure_ascii=False) if metadata else \
+                     json.dumps({"summary": summary, 'theme': theme}, ensure_ascii=False) 
+                    
         thread_key = self._get_user_thread_summary_key(user_id, thread_id)
         self.redis.rpush(thread_key, msg_thread)
         self.redis.expire(thread_key, self.ttl)
@@ -146,7 +153,7 @@ class GlobalLocalThreadUserMemory():
             "summary": summary, 
             "theme": theme, 
             "thread_id": thread_id,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat() if not metadata else metadata['time']
         }, ensure_ascii=False)
         global_key = self._get_user_global_summaries_key(user_id)
         self.redis.rpush(global_key, msg_global)

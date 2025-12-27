@@ -125,7 +125,7 @@ news_summary_agent_prompt = ChatPromptTemplate.from_messages([
 
 make_full_news_prompt = ChatPromptTemplate.from_messages([
     ("system", make_full_news_prompt),
-    ("human", "Контекст из инетрнета: {news}" \
+    ("human", "Контекст из интернета: {news}" \
               "Запрос пользователя: {input}")]
 )
 
