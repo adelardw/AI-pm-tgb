@@ -1,6 +1,6 @@
 from typing import TypedDict, Literal
 from graphs.structured_outputs import NewsStructuredOutputs
-from graphs.utils import WebChromeSearch
+
 from datetime import datetime
 
 class NewsGraphState(TypedDict):
@@ -22,12 +22,10 @@ class DefaultAssistant(TypedDict):
     thread_id: str
     make_history_summary: bool
     previous_thread_id: str
+    search_query: str
+    web_query: str
 
     time: datetime
-
-class WebSurfer(TypedDict):
-    query: str
-    elements: list[dict[str, str | int]]
-    reason: list
-    action: list
-    assistant_answer: str
+    web_context: str
+    need_recall: bool
+    need_web_search: bool

@@ -36,9 +36,3 @@ tgc_mas.update(system_prompt=calendar_agent_system_prompt,
            tools=NOTIFICATION_TOOL,
            agent_description=CALENDAR_TASKS,
            output_schema=CalendarStructuredOutput)
-
-tgc_mas.update(system_prompt=None,
-              agent_name='news_agent',
-              agent_type='graph',
-              agent_description=NEWS_AGENT_DESCRIPTION,
-              llm_or_graph=graph)

@@ -2,13 +2,17 @@ from langchain_core.output_parsers import StrOutputParser
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 from datetime import datetime, timedelta
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import asyncio
+
 from time import perf_counter
 import numpy as np
+from graphs.utils import search
 
-from .structured_outputs import (AnswerSchema,RecallAction,
+from .structured_outputs import (AnswerSchema,RecallAction,SearchStructuredOutputs,
                                  FactExtractionSchema,SummarizeStructuredOutputs,SearchQuerySchema)
 
-from .prompts import (recall_prompt,query_prompt,
+from .prompts import (recall_prompt,query_prompt,make_search_query_prompt,
                     summarize_prompt,default_system_prompt, fact_extraction_prompt)
 
 from .graph_states import DefaultAssistant
@@ -23,13 +27,16 @@ ckpt = InMemorySaver()
 
 
 llm = OpenRouterChat(OPEN_ROUTER_API_KEY, model_name=TEXT_IMAGE_MODEL)
+splitter = RecursiveCharacterTextSplitter(chunk_size = 1000, chunk_overlap = 100)
+
 
 recall_analyzer = recall_prompt | llm.with_structured_output(RecallAction)
 summarize_assistant = summarize_prompt | llm.with_structured_output(SummarizeStructuredOutputs)
 chat_assistant = default_system_prompt | llm.with_structured_output(AnswerSchema)
 generate_query_assistant = query_prompt | llm.with_structured_output(SearchQuerySchema)
-
 extractor_chain = fact_extraction_prompt | llm.with_structured_output(FactExtractionSchema)
+search_agent = make_search_query_prompt | llm.with_structured_output(SearchStructuredOutputs)
+
 
 
 async def find_similar_mem_chunks(documents: list[str], query: str, top_k: int = 3):
@@ -110,7 +117,6 @@ async def summarize_node(state):
     
     await thread_memory.add_user_thread_summary(
         summary=summary_results.summary,
-        theme=summary_results.theme,
         user_id=user_id,
         thread_id=previous_thread_id,
         metadata={"time": (state['time']).isoformat()} 
@@ -119,26 +125,50 @@ async def summarize_node(state):
     return state
 
 
+async def web_search_node(state):
+    logger.info('[WEB SEARCH]')
+    search_results = await asyncio.to_thread(search, state['web_query'])
+    if not search_results:
+        return state
 
+    docs = splitter.create_documents(search_results)
+    texts = [d.page_content for d in docs]
+    
+    embeddings = np.array(await embed.aembed_documents(texts))
+    query_vec = np.array(await embed.aembed_query(state['web_query']))
+    scores = embeddings @ query_vec
+    
+    top_indices = np.argsort(scores)[-3:][::-1]
+    web_context = "\n".join([f"Источник [Интернет]: {texts[i]}" for i in top_indices])
+    
+    state['web_context'] = web_context 
+    return state
 
 
 async def recall_node(state):
-    logger.info('[RECALL - OPTIMIZED]')
-    user_id, query = state['user_id'], state['user_message']
-    
+
+    logger.info('[RECALL ANALYZER]')
     action = await recall_analyzer.ainvoke({
         "history": prepare_cache_messages_to_langchain(state['local_context']),
-        "user_message": query
+        "user_message": state['user_message']
     })
+    
+    return {
+        "need_recall": action.need_recall,
+        "need_web_search": action.need_web_search,
+        "search_query": action.search_query,
+        "web_query": action.web_query
+    }
 
-    if not action.need_recall:
-        return state
+async def memory_node(state):
 
+    logger.info('[MEMORY FETCH]')
+    user_id = state['user_id']
     summaries = thread_memory.get_all_summaries_for_search(user_id)
     if not summaries:
         return state
 
-    query_vec = np.array(await embed.aembed_query(action.search_query))
+    query_vec = np.array(await embed.aembed_query(state['search_query']))
     
     results = []
     for s in summaries:
@@ -151,25 +181,44 @@ async def recall_node(state):
         raw_history = thread_memory.get_thread_history(best_match['thread_id'])
         
         state['global_context'] = [
-            {"role": "system", "content": f"Вспомнил из темы '{best_match.get('theme')}': {best_match['summary']}"},
-            *raw_history[-10:] 
+            {"role": "assistant", "content": f"Саммари одного из прошлых диалогов: {best_match['summary']}"},
+            *raw_history[-5:] 
         ]
+        imgs = []
+        for m in raw_history:
+            if (meta := m.get('metadata')) and (im := meta.get('images')):
+                imgs.extend(im if isinstance(im, list) else [im])
+        state['recalled_images'] = list(set(imgs))[:2]
         
-        state['recalled_images'] = [
-            img for msg in raw_history 
-            if (imgs := msg.get('metadata', {}).get('images')) for img in (imgs if isinstance(imgs, list) else [imgs])
-        ][:2]
-
     return state
+    
+
+def route_after_recall(state):
+    targets = []
+    if state.get("need_recall"):
+        targets.append("memory_fetch")
+    if state.get("need_web_search"):
+        targets.append("web_search")
+    
+    return targets if targets else ["answer"]
 
 
 async def answer_node(state):
     logger.info('[ANSWER - WITH CoT]')
     
-    history_lc = prepare_cache_messages_to_langchain(state.get('global_context', []))
+    
+    web_info = state.get('web_context', '') 
+    web_data = []
+    if web_info:
+        web_data = [{"role": "system", "content": f"АКТУАЛЬНЫЕ ДАННЫЕ ИЗ ИНТЕРНЕТА:\n{web_info}"}]
+        
+    history_lc = prepare_cache_messages_to_langchain(state.get('global_context', []),
+                                                     local=False)
+
+    web_lc = prepare_cache_messages_to_langchain(web_data, local=False)
     locals_lc = prepare_cache_messages_to_langchain(state['local_context'])
     
-    full_history_lc = history_lc + locals_lc
+    full_history_lc = history_lc + web_lc + locals_lc 
 
     all_images = []
     if state.get('recalled_images'):
@@ -179,8 +228,8 @@ async def answer_node(state):
 
     input_dict = {
         'history': full_history_lc, 
-        "user_message": f"Новое сообщение: {state['user_message']}",
-        "datetime": f"Текущее время: {state['time']}" 
+        "user_message": f"Время отправки сообщения: [{state['time'].isoformat()}]."\
+                        f"Сообщение от пользователя: {state['user_message']}",
     }
     
     if all_images:
@@ -195,6 +244,8 @@ workflow = StateGraph(DefaultAssistant)
 
 workflow.add_node("summarize", summarize_node)
 workflow.add_node("recall", recall_node)
+workflow.add_node("memory_fetch", memory_node)
+workflow.add_node("web_search", web_search_node)
 workflow.add_node("answer", answer_node)
 workflow.add_node("local_summarize", local_summarize_node)
 
@@ -209,8 +260,21 @@ workflow.add_conditional_edges(
 )
 
 workflow.add_edge("local_summarize", "recall")
+
+workflow.add_conditional_edges(
+    "recall", 
+    route_after_recall, 
+    {
+        "memory_fetch": "memory_fetch", 
+        "web_search": "web_search", 
+        "answer": "answer"
+    }
+)
+
+workflow.add_edge("memory_fetch", "answer")
+workflow.add_edge("web_search", "answer")
+
 workflow.add_edge("summarize", "recall")
-workflow.add_edge("recall", "answer")
 workflow.add_edge("answer", END)
 
 

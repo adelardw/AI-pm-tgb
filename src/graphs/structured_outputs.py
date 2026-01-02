@@ -20,8 +20,6 @@ class MemoryRememberStructuredOutputs(BaseModel):
 
 class MemoryRecallStructuredOutputs(BaseModel):
     need_recall: bool = Field(..., description='True, если пользователь намекает что - то вспомнить. False - иначе')
-    #memory_chunk_ind: int | None = Field(..., description='Номер участка локальной памяти который соответствует запросу пользователя '\
-    #                                            'Номер участка начинается от 0. Если ни один участок не подходит или нужен поиск в глобальной памяти - ответ None')
 
 class MemoryWonderStructuredOutputs(BaseModel):
     need_remember: bool = Field(..., description='True, если момент кажется удивительным, и требует внимания для будущего, который нужно однозначно запомнить.'\
@@ -31,11 +29,9 @@ class MemoryWonderStructuredOutputs(BaseModel):
 class MemoryFindStructuredOutputs(BaseModel):
     true_context: bool = Field(..., description='True, если текущее воспоминание из памяти подходит под контекст.False - иначе')
 
-class IntentSchema(BaseModel):
-    action: Literal["chat", "recall", "maintain"] = Field(..., description="chat - обычный ответ, recall - нужен поиск в памяти, maintain - пользователь просит саммари или завершает тему")
-
 class AnswerSchema(BaseModel):
     final_answer: str = Field(description="Финальный ответ пользователю.")
+    reasoning: str = Field(description="Причина, почему такой ответ.")
 
 
 class SearchQuerySchema(BaseModel):
@@ -48,37 +44,9 @@ class FactExtractionSchema(BaseModel):
 
 
 class RecallAction(BaseModel):
-    need_recall: bool = Field(description="Нужно ли искать в прошлых беседах")
-    search_query: str | None = Field(description="Оптимизированный запрос для поиска (сущности вместо местоимений)")
-    visual_search_query: str | None = Field(description="Что искать на изображениях, если применимо")
+    need_recall: bool = Field(description="Нужно ли лезть в векторную базу (прошлое пользователя)")
+    need_web_search: bool = Field(description="Нужно ли лезть в Google (актуальные данные)")
+    search_query: str | None = Field(description="Поисковый запрос для векторной модели")
+    web_query: str | None = Field(description="Запрос для интернета (например, 'Apple stock price today')")
+    visual_search_query: str | None = Field(description="Что искать на изображениях (применимо в случае поиска внутри векторной базы)")
     
-    
-class Elemetns(BaseModel):
-    id: int = Field(..., description='Индекс элемента')
-    description: int = Field(..., description='Индекс элемента')
-
-class ActualJSElementsStructuredOutputs(BaseModel):
-    actual_elements: list[int] = Field(..., description = """Список из id веб елементов, в которых действия
-                                                            для данного запроса пользователя подходят наилучшим образом.""")
-
-class WebStructuredOutputs(BaseModel):
-    action: Literal['click', 'type', 'scroll', 'done', 'submit','back'] = Field(..., description="""Тип действия.
-                                                                         'click' - нажатие,
-                                                                         'type' - ввод текста,
-                                                                         'submit' - отправка формы (нажатие Enter),
-                                                                         'scroll' - прокрутка на сайте. Можно скроллить либо снизу-вверх (up) , либо сверху - вниз (down).
-                                                                         'back' - возвращение к другим поисковым результатам.
-                                                                         'done' - задача выполнена.""")
-
-    direction: Optional[Literal['up','down']] = Field(None, description='Если action=scroll, иначе - None')
-    element_id: Optional[int] = Field(None, description='Id элемента, с которым нужно как - то провзаимодейстовать (нажать, или найти информацию - аттрибут text)')
-    text: Optional[str] = Field(None, description='Указывается если action=type - это поле с тектом у элемента с номером element_id')
-    reason: Optional[str] = Field(None, description='Указывается если action=done - причина по которой action=done. Во всех остальных случаях - None')
-
-    @field_validator('direction', mode='before')
-    @classmethod
-    def clean_direction(cls, v):
-        """Преобразует строковый 'null' от LLM в настоящий None."""
-        if v == 'null':
-            return None
-        return v
