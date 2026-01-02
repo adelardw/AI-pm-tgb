@@ -58,7 +58,7 @@ async def find_similar_mem_chunks(documents: list[str], query: str, top_k: int =
 
 async def router(state):
     logger.info('[ROUTER]')
-    
+    logger.info(f'[USER QUERY] {state["user_message"]}')
     if state.get("make_history_summary"):
         return "summarize"
     
@@ -99,6 +99,7 @@ async def local_summarize_node(state):
     )
     
     state['local_context'] = thread_memory.get_local_history(thread_id)
+    logger.info(f'[LOCAL CTX] {state.get("local_context", [])}')
     return state
 
 
@@ -130,7 +131,8 @@ async def summarize_node(state):
         metadata={"time": (state['time']).isoformat(),
                   'images': captured_images} 
     )
-    
+
+    logger.info(f'[LOCAL CTX] {state.get("local_context", [])}')
     return state
 
 
@@ -187,24 +189,28 @@ async def memory_node(state):
         score_user = np.dot(q_user, np.array(s['vector']))
         score = max(score_query, score_user)
         logger.info(f"score: [{score}] | summary: [{s['summary']}]")
-        if score > 0.65:
+        if score > 0.45:
             results.append(s)
 
     if results:
         best_match = sorted(results, key=lambda x: max(np.dot(query_vec, x['vector']),
-                                                       np.dot(q_user, x['vector'])), 
-                            reverse=True)[0]
+                                                       np.dot(q_user, x['vector'])))[-3:]
         
         logger.info(f"[BEST MATCH FOUND] Thread: {best_match['thread_id']} | Summary: {best_match['summary']}")
 
-        raw_history = thread_memory.get_thread_history(best_match['thread_id'])
+
+        raws = []
+        for bm in best_match:
+            raw_history = thread_memory.get_thread_history(bm['thread_id'])
         
-        new_global_context = [
-            {"role": "assistant", "content": f"Саммари одного из прошлых диалогов: {best_match['summary']}"},
-            *raw_history[-5:] 
-        ]
+            raws.append({"role": "system", "content": f"--- ПАМЯТЬ: ТРЕД {bm['thread_id']} ---"})
+            raws.append({"role": "assistant", "content": f"Краткая суть: {bm['summary']}"})
+            
+            raws.extend(raw_history[-7:])
+
+        logger.info(f'[GLOBAL CTX] {raws}')
         
-    return {"global_context": new_global_context}
+    return {"global_context": raws}
     
 
 def route_after_recall(state):
@@ -232,7 +238,6 @@ async def answer_node(state):
 
     web_lc = prepare_cache_messages_to_langchain(web_data, local=False)
     locals_lc = prepare_cache_messages_to_langchain(state['local_context'])
-    
     full_history_lc = history_lc + web_lc + locals_lc 
 
     all_images = []
