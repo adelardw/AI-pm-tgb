@@ -1,14 +1,15 @@
-from typing import TypedDict
 from datetime import datetime
+from typing import Annotated, TypedDict, List
+import operator
 
 
 class DefaultAssistant(TypedDict):
     user_message: str
     local_context: list[str]
-    global_context: list[str]
+    global_context: Annotated[list, operator.add] 
     image_url: list[str]
     generation: str 
-    recalled_images: list
+
     
     user_id: str
     thread_id: str

@@ -10,7 +10,6 @@ from agents.tasks import *
 from agents.structured_outputs import CalendarStructuredOutput
 from agent_builder import MakeRoutingMultiAgents
 from llm import OpenRouterChat
-from graphs import graph
 from config import OPEN_ROUTER_API_KEY
 
 llm = OpenRouterChat(api_key=OPEN_ROUTER_API_KEY)

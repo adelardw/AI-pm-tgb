@@ -110,6 +110,14 @@ async def summarize_node(state):
     history = thread_memory.get_thread_history(previous_thread_id)
     history_lc = prepare_cache_messages_to_langchain(history)
     
+    captured_images = []
+    for msg in history:
+        if (meta := msg.get('metadata')) and (imgs := meta.get('images')):
+            captured_images.extend(imgs if isinstance(imgs, list) else [imgs])
+    
+    captured_images = list(dict.fromkeys(captured_images))
+    
+    
     start = perf_counter()
     summary_results = await summarize_assistant.ainvoke({'history': history_lc})
     end = perf_counter() - start
@@ -119,7 +127,8 @@ async def summarize_node(state):
         summary=summary_results.summary,
         user_id=user_id,
         thread_id=previous_thread_id,
-        metadata={"time": (state['time']).isoformat()} 
+        metadata={"time": (state['time']).isoformat(),
+                  'images': captured_images} 
     )
     
     return state
@@ -141,8 +150,7 @@ async def web_search_node(state):
     top_indices = np.argsort(scores)[-3:][::-1]
     web_context = "\n".join([f"Источник [Интернет]: {texts[i]}" for i in top_indices])
     
-    state['web_context'] = web_context 
-    return state
+    return {"web_context": web_context}
 
 
 async def recall_node(state):
@@ -168,29 +176,34 @@ async def memory_node(state):
     if not summaries:
         return state
 
+    
     query_vec = np.array(await embed.aembed_query(state['search_query']))
+    q_user = np.array(await embed.aembed_query(state['user_message']))
     
     results = []
     for s in summaries:
-        score = np.dot(query_vec, np.array(s['vector']))
-        if score > 0.75:
+        score_query = np.dot(query_vec, np.array(s['vector']))
+        score_user = np.dot(q_user, np.array(s['vector']))
+        score = max(score_query, score_user)
+        logger.info(f"score: [{score}] | summary: [{s['summary']}]")
+        if score > 0.65:
             results.append(s)
 
     if results:
-        best_match = sorted(results, key=lambda x: np.dot(query_vec, x['vector']), reverse=True)[0]
+        best_match = sorted(results, key=lambda x: max(np.dot(query_vec, x['vector']),
+                                                       np.dot(q_user, x['vector'])), 
+                            reverse=True)[0]
+        
+        logger.info(f"[BEST MATCH FOUND] Thread: {best_match['thread_id']} | Summary: {best_match['summary']}")
+
         raw_history = thread_memory.get_thread_history(best_match['thread_id'])
         
-        state['global_context'] = [
+        new_global_context = [
             {"role": "assistant", "content": f"Саммари одного из прошлых диалогов: {best_match['summary']}"},
             *raw_history[-5:] 
         ]
-        imgs = []
-        for m in raw_history:
-            if (meta := m.get('metadata')) and (im := meta.get('images')):
-                imgs.extend(im if isinstance(im, list) else [im])
-        state['recalled_images'] = list(set(imgs))[:2]
         
-    return state
+    return {"global_context": new_global_context}
     
 
 def route_after_recall(state):
@@ -211,7 +224,8 @@ async def answer_node(state):
     web_data = []
     if web_info:
         web_data = [{"role": "system", "content": f"АКТУАЛЬНЫЕ ДАННЫЕ ИЗ ИНТЕРНЕТА:\n{web_info}"}]
-        
+    
+    logger.info(state.get('global_context', []))
     history_lc = prepare_cache_messages_to_langchain(state.get('global_context', []),
                                                      local=False)
 
@@ -221,8 +235,6 @@ async def answer_node(state):
     full_history_lc = history_lc + web_lc + locals_lc 
 
     all_images = []
-    if state.get('recalled_images'):
-        all_images.extend(state['recalled_images'])
     if state.get('image_url'):
         all_images.append(state['image_url'])
 
@@ -237,7 +249,7 @@ async def answer_node(state):
         
     response = await chat_assistant.ainvoke(input_dict)
     state['generation'] = response
-    
+    state['global_context'] = []
     return state
         
 workflow = StateGraph(DefaultAssistant)
