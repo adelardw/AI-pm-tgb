@@ -1,14 +1,6 @@
-from typing import TypedDict, Literal
-from graphs.structured_outputs import NewsStructuredOutputs
-
+from typing import TypedDict
 from datetime import datetime
 
-class NewsGraphState(TypedDict):
-    input: str
-    search_query: str
-    original_news: list[str]
-    batch_results: list[NewsStructuredOutputs]
-    output: str
 
 class DefaultAssistant(TypedDict):
     user_message: str
